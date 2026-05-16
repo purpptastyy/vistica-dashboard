@@ -400,7 +400,7 @@ document.getElementById('csv-input').addEventListener('change', async (event) =>
 
 window.loadAll = async () => {
   document.getElementById('sync-btn').textContent = '↻ syncing...';
-  await Promise.all([loadArtistStats(), loadTracks()]);
+  await Promise.all([loadArtistStats(), loadTracks(), loadCorrelation()]); // loadCorrelation hinzugefügt
   document.getElementById('sync-btn').textContent = '↻ sync';
 };
 async function loadCorrelation() {
