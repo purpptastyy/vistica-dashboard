@@ -355,6 +355,36 @@
   </div>
 </div>
 <!-- PITCH EXPORT SECTION END -->
+  <!-- INSTAGRAM SECTION START -->
+<div class="section-label">instagram performance</div>
+
+<div class="three-col">
+  <div class="card">
+    <div class="card-title">Follower</div>
+    <div style="font-family:var(--font-head);font-size:2rem;font-weight:700" id="ig-followers">—</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Reach (7 Tage)</div>
+    <div style="font-family:var(--font-head);font-size:1.8rem;font-weight:700;color:var(--accent2)" id="ig-reach">—</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Profile Views</div>
+    <div style="font-family:var(--font-head);font-size:1.8rem;font-weight:700;color:var(--accent3)" id="ig-views">—</div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <div class="card-title">Instagram Timeline <span class="card-badge">letzte 30 Tage</span></div>
+  <div style="position:relative;height:220px">
+    <canvas id="chart-instagram"></canvas>
+  </div>
+  <div style="display:flex;gap:1rem;margin-top:.8rem;font-size:.65rem;color:var(--text3)">
+    <span><span style="color:var(--accent)">■</span> Impressions</span>
+    <span><span style="color:var(--accent2)">■</span> Reach</span>
+    <span><span style="color:var(--accent3)">■</span> Profile Views</span>
+  </div>
+</div>
+<!-- INSTAGRAM SECTION END -->
 </main>
 
 <div class="toast" id="toast"></div>
@@ -769,9 +799,79 @@ document.getElementById('pitch-btn').addEventListener('click', async () => {
   status.textContent = '✓ PDF generiert';
 });
 // ========= END PITCH PDF EXPORT =========
+  // ========= INSTAGRAM LAYER =========
+async function loadInstagram() {
+  const { data } = await db.from('instagram_daily_stats').select('*').order('date').gte('date', 
+    new Date(Date.now() - 30*86400000).toISOString().split('T')[0]
+  );
+  if (!data?.length) return;
+  
+  const latest = data[data.length - 1];
+  const last7 = data.slice(-7);
+  const reach7 = last7.reduce((a,b) => a + (b.reach || 0), 0);
+  
+  document.getElementById('ig-followers').textContent = latest.followers?.toLocaleString() || '—';
+  document.getElementById('ig-reach').textContent = reach7.toLocaleString();
+  document.getElementById('ig-views').textContent = latest.profile_views?.toLocaleString() || '—';
+  
+  const labels = data.map(d => d.date.slice(5));
+  const impressions = data.map(d => d.impressions || 0);
+  const reach = data.map(d => d.reach || 0);
+  const views = data.map(d => d.profile_views || 0);
+  
+  const existing = Chart.getChart('chart-instagram');
+  if (existing) existing.destroy();
+  
+  const ctx = document.getElementById('chart-instagram').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Impressions',
+          data: impressions,
+          borderColor: '#c8ff57',
+          backgroundColor: 'rgba(200,255,87,.1)',
+          borderWidth: 2,
+          tension: .3,
+          pointRadius: 3
+        },
+        {
+          label: 'Reach',
+          data: reach,
+          borderColor: '#57c8ff',
+          backgroundColor: 'rgba(87,200,255,.1)',
+          borderWidth: 2,
+          tension: .3,
+          pointRadius: 3
+        },
+        {
+          label: 'Profile Views',
+          data: views,
+          borderColor: '#ff5757',
+          backgroundColor: 'rgba(255,87,87,.1)',
+          borderWidth: 2,
+          tension: .3,
+          pointRadius: 3
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#44444f', font: { family: 'DM Mono', size: 9 } }, grid: { color: '#1e1e24' } },
+        y: { ticks: { color: '#44444f', font: { family: 'DM Mono', size: 10 } }, grid: { color: '#1e1e24' } }
+      }
+    }
+  });
+}
+// ========= END INSTAGRAM LAYER =========
 window.loadAll = async () => {
   document.getElementById('sync-btn').textContent = '↻ syncing...';
-await Promise.all([loadArtistStats(), loadTracks(), loadCorrelation(), loadRevenue(), loadForecast()]);
+await Promise.all([loadArtistStats(), loadTracks(), loadCorrelation(), loadRevenue(), loadForecast(), loadInstagram()]);
   document.getElementById('sync-btn').textContent = '↻ sync';
 };
 async function loadCorrelation() {
