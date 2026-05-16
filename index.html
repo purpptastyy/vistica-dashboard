@@ -219,6 +219,44 @@
     <div class="csv-status" id="tt-status"></div>
   </div>
 </div>
+  <!-- REVENUE SECTION START -->
+<div class="section-label">revenue intelligence</div>
+
+<div class="three-col">
+  <div class="card">
+    <div class="card-title">Gesamt Revenue <span class="card-badge" id="rev-total-badge">lifetime</span></div>
+    <div style="font-family:var(--font-head);font-size:2.2rem;font-weight:700;color:var(--accent)" id="rev-total">—</div>
+    <div style="font-size:.68rem;color:var(--text3);margin-top:.3rem">Basierend auf recordJet Reports</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Top Plattform</div>
+    <div style="font-family:var(--font-head);font-size:1.4rem;font-weight:600;color:var(--text)" id="rev-top-platform">—</div>
+    <div style="font-size:.68rem;color:var(--text3)" id="rev-top-share">—</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Revenue / 1k Streams</div>
+    <div style="font-family:var(--font-head);font-size:1.8rem;font-weight:700;color:var(--accent2)" id="rev-rpm">—</div>
+    <div style="font-size:.68rem;color:var(--text3)">Durchschnittlicher RPM</div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <div class="card-title">Revenue Timeline <span class="card-badge">letzte 12 Monate</span></div>
+  <div style="position:relative;height:220px">
+    <canvas id="chart-revenue"></canvas>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">recordJet CSV Import</div>
+  <input type="file" id="rev-csv" accept=".csv" multiple style="margin-bottom:.5rem">
+  <button class="save-btn" id="rev-upload-btn">Revenue CSV importieren →</button>
+  <div class="csv-status" id="rev-status"></div>
+  <div style="font-size:.6rem;color:var(--text3);margin-top:.5rem">
+    Format: recordJet Standard-Export (Spalten: Date, Store, Track, Country, Revenue, Streams)
+  </div>
+</div>
+<!-- REVENUE SECTION END -->
 </main>
 
 <div class="toast" id="toast"></div>
@@ -397,10 +435,101 @@ document.getElementById('csv-input').addEventListener('change', async (event) =>
     : `✓ ${totalRows} zeilen importiert`;
   if (!errors) { toast(`${totalRows} Zeilen importiert ✓`); loadTracks(); }
 });
+// ========= REVENUE LAYER =========
+document.getElementById('rev-upload-btn').addEventListener('click', async () => {
+  const files = document.getElementById('rev-csv').files;
+  if (!files.length) { document.getElementById('rev-status').textContent = '⚠ CSV wählen'; return; }
+  
+  let inserted = 0;
+  for (const file of files) {
+    const text = await file.text();
+    const rows = text.split('\n').slice(1);
+    const records = [];
+    
+    rows.forEach(row => {
+      const cols = row.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+      if (cols.length < 6) return;
+      records.push({
+        date: cols[0] || new Date().toISOString().split('T')[0],
+        platform: cols[1] || 'Unknown',
+        track_name: cols[2] || 'Unknown',
+        country: cols[3] || 'Unknown',
+        revenue: parseFloat(cols[4]?.replace(',', '.')) || 0,
+        streams: parseInt(cols[5]) || 0
+      });
+    });
+    
+    if (records.length) {
+      const { error } = await db.from('revenue_records').insert(records);
+      if (!error) inserted += records.length;
+    }
+  }
+  
+  document.getElementById('rev-status').textContent = `✓ ${inserted} Einträge importiert`;
+  loadRevenue();
+});
 
+async function loadRevenue() {
+  const { data } = await db.from('revenue_records').select('*').order('date');
+  if (!data?.length) return;
+  
+  const totalRev = data.reduce((a,b) => a + (b.revenue || 0), 0);
+  const totalStreams = data.reduce((a,b) => a + (b.streams || 0), 0);
+  const rpm = totalStreams > 0 ? (totalRev / totalStreams) * 1000 : 0;
+  
+  const platMap = {};
+  data.forEach(d => { platMap[d.platform] = (platMap[d.platform] || 0) + d.revenue; });
+  const topPlat = Object.entries(platMap).sort((a,b) => b[1]-a[1])[0];
+  
+  document.getElementById('rev-total').textContent = '€' + totalRev.toFixed(2);
+  document.getElementById('rev-rpm').textContent = '€' + rpm.toFixed(3);
+  if (topPlat) {
+    document.getElementById('rev-top-platform').textContent = topPlat[0];
+    document.getElementById('rev-top-share').textContent = ((topPlat[1]/totalRev)*100).toFixed(1) + '% des Umsatzes';
+  }
+  
+  const monthMap = {};
+  data.forEach(d => {
+    const m = d.date.slice(0, 7);
+    monthMap[m] = (monthMap[m] || 0) + d.revenue;
+  });
+  const sortedMonths = Object.keys(monthMap).sort();
+  
+  const existing = Chart.getChart('chart-revenue');
+  if (existing) existing.destroy();
+  
+  const ctx = document.getElementById('chart-revenue').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: sortedMonths,
+      datasets: [{
+        label: 'Revenue €',
+        data: sortedMonths.map(m => monthMap[m]),
+        borderColor: '#c8ff57',
+        backgroundColor: 'rgba(200,255,87,.1)',
+        borderWidth: 2,
+        tension: .4,
+        fill: true,
+        pointRadius: 4,
+        pointBackgroundColor: '#c8ff57'
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#44444f', font: { family: 'DM Mono', size: 9 } }, grid: { color: '#1e1e24' } },
+        y: { ticks: { color: '#44444f', font: { family: 'DM Mono', size: 10 }, callback: v => '€'+v }, grid: { color: '#1e1e24' } }
+      }
+    }
+  });
+}
+// ========= END REVENUE LAYER =========
 window.loadAll = async () => {
   document.getElementById('sync-btn').textContent = '↻ syncing...';
-  await Promise.all([loadArtistStats(), loadTracks(), loadCorrelation()]); // loadCorrelation hinzugefügt
+await Promise.all([loadArtistStats(), loadTracks(), loadCorrelation(), loadRevenue()]);
   document.getElementById('sync-btn').textContent = '↻ sync';
 };
 async function loadCorrelation() {
