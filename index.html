@@ -385,6 +385,51 @@
   </div>
 </div>
 <!-- INSTAGRAM SECTION END -->
+  <!-- INSTAGRAM SECTION START -->
+<div class="section-label">instagram performance</div>
+
+<div class="three-col">
+  <div class="card">
+    <div class="card-title">Follower</div>
+    <div style="font-family:var(--font-head);font-size:2rem;font-weight:700" id="ig-followers">—</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Reach (7 Tage)</div>
+    <div style="font-family:var(--font-head);font-size:1.8rem;font-weight:700;color:var(--accent2)" id="ig-reach">—</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Profile Views</div>
+    <div style="font-family:var(--font-head);font-size:1.8rem;font-weight:700;color:var(--accent3)" id="ig-views">—</div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <div class="card-title">Instagram Timeline <span class="card-badge">letzte 30 Tage</span></div>
+  <div style="position:relative;height:220px">
+    <canvas id="chart-instagram"></canvas>
+  </div>
+  <div style="display:flex;gap:1rem;margin-top:.8rem;font-size:.65rem;color:var(--text3)">
+    <span><span style="color:var(--accent)">■</span> Impressions</span>
+    <span><span style="color:var(--accent2)">■</span> Reach</span>
+    <span><span style="color:var(--accent3)">■</span> Profile Views</span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Instagram Daten erfassen</div>
+  <input class="inp" id="ig-date" type="date">
+  <input class="inp" id="ig-followers-input" type="number" placeholder="Follower">
+  <input class="inp" id="ig-impressions" type="number" placeholder="Impressions">
+  <input class="inp" id="ig-reach-input" type="number" placeholder="Reach">
+  <input class="inp" id="ig-profile-views" type="number" placeholder="Profile Views">
+  <button class="save-btn" id="ig-save-btn">Instagram Stats speichern →</button>
+  <div class="csv-status" id="ig-status"></div>
+  <div style="font-size:.6rem;color:var(--text3);margin-top:.5rem">
+    Quelle: Instagram Insights (Profil → Professionelles Dashboard → Gesamtleistung)
+  </div>
+</div>
+<!-- INSTAGRAM SECTION END -->
+  
 </main>
 
 <div class="toast" id="toast"></div>
@@ -868,6 +913,108 @@ async function loadInstagram() {
     }
   });
 }
+// ========= END INSTAGRAM LAYER =========
+  // ========= INSTAGRAM LAYER =========
+async function loadInstagram() {
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const fromDate = thirtyDaysAgo.toISOString().split('T')[0];
+
+  const { data } = await db.from('instagram_daily_stats').select('*').gte('date', fromDate).order('date');
+  if (!data?.length) return;
+
+  const latest = data[data.length - 1];
+  const last7 = data.slice(-7);
+  const reach7 = last7.reduce((a, b) => a + (b.reach || 0), 0);
+
+  document.getElementById('ig-followers').textContent = latest.followers?.toLocaleString() || '—';
+  document.getElementById('ig-reach').textContent = reach7.toLocaleString();
+  document.getElementById('ig-views').textContent = latest.profile_views?.toLocaleString() || '—';
+
+  const labels = data.map(d => d.date.slice(5));
+  const impressions = data.map(d => d.impressions || 0);
+  const reach = data.map(d => d.reach || 0);
+  const views = data.map(d => d.profile_views || 0);
+
+  const existing = Chart.getChart('chart-instagram');
+  if (existing) existing.destroy();
+
+  const ctx = document.getElementById('chart-instagram').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Impressions',
+          data: impressions,
+          borderColor: '#c8ff57',
+          backgroundColor: 'rgba(200,255,87,.1)',
+          borderWidth: 2,
+          tension: .3,
+          pointRadius: 3,
+          fill: true
+        },
+        {
+          label: 'Reach',
+          data: reach,
+          borderColor: '#57c8ff',
+          backgroundColor: 'rgba(87,200,255,.1)',
+          borderWidth: 2,
+          tension: .3,
+          pointRadius: 3,
+          fill: true
+        },
+        {
+          label: 'Profile Views',
+          data: views,
+          borderColor: '#ff5757',
+          backgroundColor: 'rgba(255,87,87,.1)',
+          borderWidth: 2,
+          tension: .3,
+          pointRadius: 3,
+          fill: true
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#44444f', font: { family: 'DM Mono', size: 9 } }, grid: { color: '#1e1e24' } },
+        y: { ticks: { color: '#44444f', font: { family: 'DM Mono', size: 10 } }, grid: { color: '#1e1e24' } }
+      }
+    }
+  });
+}
+
+// Instagram Stats manuell speichern
+document.getElementById('ig-save-btn').addEventListener('click', async () => {
+  const payload = {
+    date: document.getElementById('ig-date').value,
+    followers: parseInt(document.getElementById('ig-followers-input').value) || 0,
+    impressions: parseInt(document.getElementById('ig-impressions').value) || 0,
+    reach: parseInt(document.getElementById('ig-reach-input').value) || 0,
+    profile_views: parseInt(document.getElementById('ig-profile-views').value) || 0
+  };
+  if (!payload.date) {
+    document.getElementById('ig-status').textContent = '⚠ Datum eintragen';
+    return;
+  }
+  const { error } = await db.from('instagram_daily_stats').insert(payload);
+  if (error) {
+    document.getElementById('ig-status').textContent = '✗ ' + error.message;
+  } else {
+    document.getElementById('ig-status').textContent = '✓ gespeichert';
+    document.getElementById('ig-date').value = '';
+    document.getElementById('ig-followers-input').value = '';
+    document.getElementById('ig-impressions').value = '';
+    document.getElementById('ig-reach-input').value = '';
+    document.getElementById('ig-profile-views').value = '';
+    loadInstagram();
+  }
+});
 // ========= END INSTAGRAM LAYER =========
 window.loadAll = async () => {
   document.getElementById('sync-btn').textContent = '↻ syncing...';
