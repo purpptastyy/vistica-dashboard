@@ -403,7 +403,139 @@ window.loadAll = async () => {
   await Promise.all([loadArtistStats(), loadTracks()]);
   document.getElementById('sync-btn').textContent = '↻ sync';
 };
+async function loadCorrelation() {
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const fromDate = thirtyDaysAgo.toISOString().split('T')[0];
 
+  const [{ data: spotifyData }, { data: tiktokData }] = await Promise.all([
+    db.from('spotify_daily_streams').select('*').gte('date', fromDate).order('date'),
+    db.from('tiktok_posts').select('*').gte('post_date', fromDate).order('post_date')
+  ]);
+
+  if (!spotifyData?.length) return;
+
+  // Build date-indexed maps
+  const streamMap = {};
+  spotifyData.forEach(d => {
+    streamMap[d.date] = (streamMap[d.date] || 0) + d.streams;
+  });
+
+  const postMap = {};
+  tiktokData?.forEach(d => { postMap[d.post_date] = d; });
+
+  // Generate last 30 days labels
+  const labels = [];
+  const streamVals = [];
+  const tiktokVals = [];
+  const postAnnotations = [];
+
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    labels.push(dateStr.slice(5));
+    streamVals.push(streamMap[dateStr] || 0);
+    const post = postMap[dateStr];
+    tiktokVals.push(post ? Math.round(post.views / 100) : 0);
+    if (post) postAnnotations.push({ date: dateStr, label: dateStr.slice(5) });
+  }
+
+  // Correlation chart
+  const existing = Chart.getChart('chart-correlation');
+  if (existing) existing.destroy();
+
+  const ctx = document.getElementById('chart-correlation').getContext('2d');
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Spotify Streams',
+          data: streamVals,
+          backgroundColor: 'rgba(200,255,87,.5)',
+          borderColor: '#c8ff57',
+          borderWidth: 1,
+          borderRadius: 2,
+          type: 'bar'
+        },
+        {
+          label: 'TikTok Views /100',
+          data: tiktokVals,
+          borderColor: '#57c8ff',
+          backgroundColor: 'rgba(87,200,255,.15)',
+          borderWidth: 2,
+          type: 'line',
+          tension: .3,
+          pointRadius: tiktokVals.map(v => v > 0 ? 6 : 0),
+          pointBackgroundColor: '#ff5757',
+          fill: true
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#44444f', font: { family: 'DM Mono', size: 9 }, maxRotation: 45 }, grid: { color: '#1e1e24' } },
+        y: { ticks: { color: '#44444f', font: { family: 'DM Mono', size: 10 } }, grid: { color: '#1e1e24' } }
+      }
+    }
+  });
+
+  // Calculate lift
+  if (tiktokData?.length && spotifyData?.length) {
+    const avgStreams = streamVals.reduce((a,b) => a+b, 0) / streamVals.filter(v=>v>0).length || 1;
+    let maxLift = 0;
+    let bestDate = null;
+
+    tiktokData.forEach(post => {
+      const d1 = new Date(post.post_date);
+      d1.setDate(d1.getDate() + 1);
+      const d2 = new Date(post.post_date);
+      d2.setDate(d2.getDate() + 2);
+      const s1 = streamMap[d1.toISOString().split('T')[0]] || 0;
+      const s2 = streamMap[d2.toISOString().split('T')[0]] || 0;
+      const lift = ((s1 + s2) / 2) / avgStreams;
+      if (lift > maxLift) { maxLift = lift; bestDate = post; }
+    });
+
+    if (maxLift > 0) {
+      document.getElementById('corr-lift').textContent = '+' + Math.round((maxLift - 1) * 100) + '%';
+      document.getElementById('corr-best-date').textContent = bestDate?.post_date || '—';
+      document.getElementById('corr-best-desc').textContent = bestDate?.description || '—';
+    }
+  }
+}
+
+// TikTok Post speichern
+document.getElementById('tt-save-btn').addEventListener('click', async () => {
+  const payload = {
+    post_date: document.getElementById('tt-date').value,
+    views: parseInt(document.getElementById('tt-views').value) || 0,
+    likes: parseInt(document.getElementById('tt-likes').value) || 0,
+    shares: parseInt(document.getElementById('tt-shares').value) || 0,
+    description: document.getElementById('tt-desc').value || ''
+  };
+  if (!payload.post_date) {
+    document.getElementById('tt-status').textContent = '⚠ Datum eintragen';
+    return;
+  }
+  const { error } = await db.from('tiktok_posts').insert(payload);
+  if (error) {
+    document.getElementById('tt-status').textContent = '✗ ' + error.message;
+  } else {
+    document.getElementById('tt-status').textContent = '✓ gespeichert';
+    document.getElementById('tt-date').value = '';
+    document.getElementById('tt-views').value = '';
+    document.getElementById('tt-likes').value = '';
+    document.getElementById('tt-shares').value = '';
+    document.getElementById('tt-desc').value = '';
+    loadCorrelation();
+  }
+});
 window.loadAll();
 </script>
 </body>
